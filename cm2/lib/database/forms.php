@@ -147,7 +147,6 @@ class cm_forms_db {
 	}
 
 	public function list_questions() {
-		$questions = array();
 		$stmt = $this->cm_db->connection->prepare(
 			'SELECT `question_id`, `context`, `order`,'.
 			' `title`, `text`, `type`, `values`,'.
@@ -155,30 +154,24 @@ class cm_forms_db {
 			' FROM `form_questions`' .
 			' WHERE `context` = ? ORDER BY `order`'
 		);
-		$stmt->bind_param('s', $this->context);
-		$stmt->execute();
-		$stmt->bind_result(
-			$question_id, $context, $order,
-			$title, $text, $type, $values,
-			$active, $listed, $exposed, $visible, $required
-		);
-		while ($stmt->fetch()) {
-			$questions[] = array(
-				'question-id' => $question_id,
-				'context' => $context,
-				'order' => $order,
-				'title' => $title,
-				'text' => $text,
-				'type' => $type,
-				'values' => ($values ? explode("\n", $values) : array()),
-				'active' => !!$active,
-				'listed' => !!$listed,
-				'exposed' => !!$exposed,
-				'visible' => ($visible ? explode(',', $visible) : array()),
-				'required' => ($required ? explode(',', $required) : array())
-			);
+		$stmt->execute([$this->context]);
+		$questions = [];
+		while (($row = $stmt->fetch(PDO::FETCH_ASSOC)) !== false) {
+			$questions[] = [
+				'question-id' => $row['question_id'],
+				'context'     => $row['context'],
+				'order'       => $row['order'],
+				'title'       => $row['title'],
+				'text'        => $row['text'],
+				'type'        => $row['type'],
+				'values'      => (explode_or_empty("\n", $row['values'])),
+				'active'      => !!$row['active'],
+				'listed'      => !!$row['listed'],
+				'exposed'     => !!$row['exposed'],
+				'visible'     => (explode_or_empty(',', $row['visible'])),
+				'required'    => (explode_or_empty(',', $row['required']))
+			];
 		}
-		$stmt->close();
 		return $questions;
 	}
 
@@ -190,8 +183,7 @@ class cm_forms_db {
 			'`form_questions`' .
 			' WHERE `context` = ?'
 		);
-		$stmt->bind_param('s', $this->context);
-		$stmt->execute();
+		$stmt->execute([$this->context]);
 		$stmt->bind_result($order);
 		$stmt->fetch();
 		$stmt->close();

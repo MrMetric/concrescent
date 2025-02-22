@@ -2,111 +2,80 @@
 
 require_once __DIR__ .'/../../config/config.php';
 
-class cm_db {
+function explode_or_empty(string $separator, string $string): array
+{
+	return empty($string) ? [] : explode($separator, $string);
+}
 
-	public mysqli $connection;
-	public array $known_tables;
+class cm_db
+{
+	public PDO $connection;
+	public array $known_tables; // This is effectively a set. Consider Ds\Set.
 
-	public function __construct() {
-		/* Load configuration */
+	public function __construct()
+	{
 		$config = $GLOBALS['cm_config']['database'];
 
-		/* Connect to database */
-		$this->connection = new mysqli(
-			$config['host'], $config['username'],
-			$config['password'], $config['database']
+		// Connect to database
+		$host = $config['host'];
+		$dbname = $config['database'];
+		// The charset must be utf8mb4 for full Unicode® support
+		$this->connection = new PDO(
+			"mysql:host=$host;dbname=$dbname;charset=utf8mb4",
+			$config['username'], $config['password']
 		);
 
-		/* Set text encoding */
-		$this->connection->set_charset('utf8mb4');
+		// Set the time zone
+		$this->connection->prepare('SET time_zone = ?')
+			->execute([$config['timezone']]);
 
-		/* Set time zone */
-		$stmt = $this->connection->prepare('set time_zone = ?');
-		$stmt->bind_param('s', $config['timezone']);
-		$stmt->execute();
-		$stmt->close();
-
-		/* Load known tables */
-		$this->known_tables = array();
+		// Create the set of known tables
 		$stmt = $this->connection->prepare(
-			'SELECT table_name '.
-			'FROM information_schema.tables '.
-			'WHERE table_schema = ?'
+			'SELECT table_name FROM information_schema.tables WHERE table_schema = ?'
 		);
-		$stmt->bind_param('s', $config['database']);
-		$stmt->execute();
-		$stmt->bind_result($table);
-		while ($stmt->fetch()) {
-			$this->known_tables[$table] = true;
-		}
-		$stmt->close();
+		$stmt->execute([$dbname]);
+		$db_tables = $stmt->fetchAll(PDO::FETCH_COLUMN);
+		$this->known_tables = array_fill_keys($db_tables, true);
 	}
 
-	public function table_def($table, $def) {
-		if (!isset($this->known_tables[$table])) {
-			$this->known_tables[$table] = true;
-			$this->connection->query(
-				'CREATE TABLE IF NOT EXISTS '.
-				'`' . $table . '` '.
-				'(' . $def . ')'
-			);
-		}
-	}
-
-	public function table_is_empty($table): bool
+	public function table_def(string $table, string $def): void
 	{
-		$result = $this->connection->query("SELECT 1 FROM `$table` LIMIT 1");
-		if ($result) {
-			$is_empty = !$result->num_rows;
-			$result->close();
-			return $is_empty;
-		} else {
-			return true;
+		if(!isset($this->known_tables[$table]))
+		{
+			$this->known_tables[$table] = true;
+			$this->connection->query("CREATE TABLE IF NOT EXISTS \"$table\" ($def)");
 		}
 	}
 
-	public function now() {
-		$result = $this->connection->query('SELECT NOW()');
-		$row = $result->fetch_row();
-		$now = $row[0];
-		$result->close();
-		return $now;
+	public function table_is_empty(string $table): bool
+	{
+		return 0 === $this->connection->query("SELECT COUNT(*) FROM $table")->fetchColumn();
 	}
 
-	public function uuid() {
-		$result = $this->connection->query('SELECT UUID()');
-		$row = $result->fetch_row();
-		$uuid = $row[0];
-		$result->close();
-		return $uuid;
+	public function now(): string
+	{
+		return $this->connection->query('SELECT NOW()')->fetchColumn();
 	}
 
-	public function curdatetime() {
-		$result = $this->connection->query('SELECT CURDATE(), CURTIME()');
-		$row = $result->fetch_row();
-		$date = $row[0];
-		$time = $row[1];
-		$result->close();
-		return array($date, $time);
+	public function uuid(): string
+	{
+		return $this->connection->query('SELECT UUID()')->fetchColumn();
 	}
 
-	public function timezone() {
-		$result = $this->connection->query('SELECT @@global.time_zone, @@session.time_zone');
-		$row = $result->fetch_row();
-		$global = $row[0];
-		$session = $row[1];
-		$result->close();
-		return array($global, $session);
+	public function curdatetime(): array
+	{
+		return $this->connection->query('SELECT CURDATE(), CURTIME()')->fetch(PDO::FETCH_NUM);
 	}
 
-	public function characterset() {
-		$results = array();
-		$result = $this->connection->query('SHOW VARIABLES LIKE \'character\\_set\\_%\'');
-		while ($row = $result->fetch_row()) {
-			$results[$row[0]] = $row[1];
-		}
-		$result->close();
-		return $results;
+	public function timezone(): array
+	{
+		return $this->connection->query('SELECT @@global.time_zone, @@session.time_zone')
+			->fetch(PDO::FETCH_NUM);
 	}
 
+	public function characterset(): array
+	{
+		return $this->connection->query('SHOW VARIABLES LIKE \'character\\_set\\_%\'')
+			->fetchAll(PDO::FETCH_KEY_PAIR);
+	}
 }

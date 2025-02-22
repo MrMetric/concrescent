@@ -127,7 +127,7 @@ class cm_lists_db {
 			default:
 				$sqlquery = 'FALSE';
 				$bindtype = '';
-				$bindvalue = array();
+				$bindvalue = [];
 				break;
 		}
 		return array($sqlquery, $bindtype, $bindvalue);
@@ -137,7 +137,7 @@ class cm_lists_db {
 		if (!$listquery) {
 			$sqlquery = 'TRUE';
 			$bindtype = '';
-			$bindvalue = array();
+			$bindvalue = [];
 		} else if ($listquery[0] == '"') {
 			$sql = $this->list_query_op_to_sql($key, $op, $listquery[1]);
 			$sqlquery = $sql[0];
@@ -149,9 +149,9 @@ class cm_lists_db {
 			$bindtype = $sql[1];
 			$bindvalue = $sql[2];
 		} else if ($listquery[0] == '&') {
-			$sqlquery = array();
+			$sqlquery = [];
 			$bindtype = '';
-			$bindvalue = array();
+			$bindvalue = [];
 			for ($i = 1, $n = count($listquery); $i < $n; $i++) {
 				$sql = $this->list_query_to_sql($listquery[$i], $key, $op);
 				$sqlquery[] = $sql[0];
@@ -160,9 +160,9 @@ class cm_lists_db {
 			}
 			$sqlquery = '(' . implode(' AND ', $sqlquery) . ')';
 		} else if ($listquery[0] == '|') {
-			$sqlquery = array();
+			$sqlquery = [];
 			$bindtype = '';
-			$bindvalue = array();
+			$bindvalue = [];
 			for ($i = 1, $n = count($listquery); $i < $n; $i++) {
 				$sql = $this->list_query_to_sql($listquery[$i], $key, $op);
 				$sqlquery[] = $sql[0];
@@ -184,10 +184,10 @@ class cm_lists_db {
 	}
 
 	public function sort_order_to_sql(&$list_def, $sort_order) {
-		$select = array();
+		$select = [];
 		$bindtype = '';
-		$bindvalue = array();
-		$orderby = array();
+		$bindvalue = [];
+		$orderby = [];
 		if ($sort_order) {
 			foreach ($sort_order as $i => $column_index) {
 				$descending = ($column_index < 0);
@@ -214,7 +214,7 @@ class cm_lists_db {
 		list($order_select, $order_bindtype, $order_bindvalue, $order_orderby) = $this->sort_order_to_sql($list_def, $sort_order);
 		$sqlquery = 'SELECT DISTINCT i.`id`';
 		$bindtype = '';
-		$bindvalue = array();
+		$bindvalue = [];
 		if ($order_select) {
 			$sqlquery .= ', ' . implode(', ', $order_select);
 			$bindtype .= $order_bindtype;
@@ -252,7 +252,7 @@ class cm_lists_db {
 		$stmt->execute();
 
 		$id = null;
-		$x = array();
+		$x = [];
 		$bindresult = array(&$id);
 		if ($sort_order) {
 			for ($i = 0, $n = count($sort_order); $i < $n; $i++) {
@@ -261,20 +261,18 @@ class cm_lists_db {
 		}
 		call_user_func_array(array($stmt, 'bind_result'), $bindresult);
 
-		$ids = array();
-		while ($stmt->fetch()) $ids[] = $id;
-		$stmt->close();
+		$ids = [];
+		while ($stmt->fetch()) { $ids[] = $id; }
 
 		$match_count = count($ids);
 		if ($length) {
 			$ids = array_slice($ids, $offset, $length);
 		}
-		return array(
+		return [
 			'ok' => true,
 			'ids' => $ids,
 			'match-count' => $match_count,
 			'sql-query' => $sqlquery
-		);
+		];
 	}
-
 }

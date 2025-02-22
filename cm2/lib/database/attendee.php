@@ -199,7 +199,7 @@ class cm_attendee_db {
 				'order' => $order,
 				'name' => $name,
 				'description' => $description,
-				'rewards' => ($rewards ? explode("\n", $rewards) : array()),
+				'rewards' => ($rewards ? explode("\n", $rewards) : []),
 				'price' => $price,
 				'sales-tax' => $salesTax,
 				'payable-onsite' => !!$payable_onsite,
@@ -222,43 +222,22 @@ class cm_attendee_db {
 		return false;
 	}
 
-	public function get_badge_type_name_map() {
-		$badge_types = array();
-		$stmt = $this->cm_db->connection->prepare(
-			'SELECT `id`, `name`'.
-			' FROM `attendee_badge_types`' .
-			' ORDER BY `order`'
-		);
-		$stmt->execute();
-		$stmt->bind_result($id, $name);
-		while ($stmt->fetch()) {
-			$badge_types[$id] = $name;
-		}
-		$stmt->close();
-		return $badge_types;
+	public function get_badge_type_name_map(): array
+	{
+		return $this->cm_db->connection->query(
+			'SELECT id, name FROM attendee_badge_types ORDER BY "order"'
+		)->fetchAll(PDO::FETCH_KEY_PAIR);
 	}
 
-	public function list_badge_type_names() {
-		$badge_types = array();
-		$stmt = $this->cm_db->connection->prepare(
-			'SELECT `id`, `name`'.
-			' FROM `attendee_badge_types`' .
-			' ORDER BY `order`'
-		);
-		$stmt->execute();
-		$stmt->bind_result($id, $name);
-		while ($stmt->fetch()) {
-			$badge_types[] = array(
-				'id' => $id,
-				'name' => $name
-			);
-		}
-		$stmt->close();
-		return $badge_types;
+	public function list_badge_type_names(): array
+	{
+		return $this->cm_db->connection->query(
+			'SELECT id, name FROM attendee_badge_types ORDER BY "order"'
+		)->fetchAll(PDO::FETCH_ASSOC);
 	}
 
 	public function list_badge_types($active_only = false, $unsold_only = false, $onsite_only = false, $override_code = '', bool $allowFutureBadges = false) {
-		$badge_types = array();
+		$badge_types = [];
 		$query = (
 			'SELECT b.`id`, b.`order`, b.`name`, b.`description`, b.`rewards`,'.
 			' b.`price`, b.`sales_tax`, b.`payable_onsite`, b.`active`, b.`quantity`,'.
@@ -308,13 +287,13 @@ class cm_attendee_db {
 			if ($unsold_only && !(is_null($quantity) || $quantity > $quantity_sold)) continue;
 			$min_birthdate = $max_age ? (((int)$event_start_date - $max_age - 1) . substr($event_start_date, 4)) : null;
 			$max_birthdate = $min_age ? (((int)$event_end_date   - $min_age    ) . substr($event_end_date  , 4)) : null;
-			$badge_types[] = array(
+			$badge_types[] = [
 				'id' => $id,
 				'id-string' => 'AB' . $id,
 				'order' => $order,
 				'name' => $name,
 				'description' => $description,
-				'rewards' => ($rewards ? explode("\n", $rewards) : array()),
+				'rewards' => explode_or_empty("\n", $rewards),
 				'price' => $price,
 				'sales-tax' => $salesTax,
 				'payable-onsite' => !!$payable_onsite,
@@ -328,8 +307,8 @@ class cm_attendee_db {
 				'max-age' => $max_age,
 				'min-birthdate' => $min_birthdate,
 				'max-birthdate' => $max_birthdate,
-				'search-content' => array($name, $description, $rewards)
-			);
+				'search-content' => [$name, $description, $rewards],
+			];
 		}
 		$stmt->close();
 		return $badge_types;
@@ -437,7 +416,7 @@ class cm_attendee_db {
 	public function reorder_badge_type($id, $direction) {
 		if (!$id || !$direction) return false;
 		$this->cm_db->connection->autocommit(false);
-		$ids = array();
+		$ids = [];
 		$index = -1;
 		$stmt = $this->cm_db->connection->prepare(
 			'SELECT `id` FROM '.
@@ -504,8 +483,8 @@ class cm_attendee_db {
 		$stmt->execute();
 		$stmt->bind_result(
 			$id, $order, $name, $description,
-            $price, $salesTax,
-            $payable_onsite, $active, $badge_type_ids, $quantity,
+			$price, $salesTax,
+			$payable_onsite, $active, $badge_type_ids, $quantity,
 			$start_date, $end_date, $min_age, $max_age,
 			$quantity_sold
 		);
@@ -520,11 +499,11 @@ class cm_attendee_db {
 				'name' => $name,
 				'description' => $description,
 				'price' => $price,
-                'sales-tax' => $salesTax,
+				'sales-tax' => $salesTax,
 				'payable-onsite' => !!$payable_onsite,
 				'active' => !!$active,
-				'badge-type-ids' => ($badge_type_ids ? explode(',', $badge_type_ids) : array()),
-				'badge-type-names' => array(),
+				'badge-type-ids' => ($badge_type_ids ? explode(',', $badge_type_ids) : []),
+				'badge-type-names' => [],
 				'quantity' => $quantity,
 				'quantity-sold' => $quantity_sold,
 				'quantity-remaining' => (is_null($quantity) ? null : ($quantity - $quantity_sold)),
@@ -548,7 +527,7 @@ class cm_attendee_db {
 
 	public function list_addons($active_only = false, $unsold_only = false, $onsite_only = false, $name_map = null) {
 		if (!$name_map) $name_map = $this->get_badge_type_name_map();
-		$addons = array();
+		$addons = [];
 		$query = (
 			'SELECT b.`id`, b.`order`, b.`name`, b.`description`, b.`price`, b.`sales_tax`,'.
 			' b.`payable_onsite`, b.`active`, b.`badge_type_ids`, b.`quantity`,'.
@@ -593,8 +572,8 @@ class cm_attendee_db {
 				'sales-tax' => $salesTax,
 				'payable-onsite' => !!$payable_onsite,
 				'active' => !!$active,
-				'badge-type-ids' => ($badge_type_ids ? explode(',', $badge_type_ids) : array()),
-				'badge-type-names' => array(),
+				'badge-type-ids' => ($badge_type_ids ? explode(',', $badge_type_ids) : []),
+				'badge-type-names' => [],
 				'quantity' => $quantity,
 				'quantity-sold' => $quantity_sold,
 				'quantity-remaining' => (is_null($quantity) ? null : ($quantity - $quantity_sold)),
@@ -721,7 +700,7 @@ class cm_attendee_db {
 	public function reorder_addon($id, $direction) {
 		if (!$id || !$direction) return false;
 		$this->cm_db->connection->autocommit(false);
-		$ids = array();
+		$ids = [];
 		$index = -1;
 		$stmt = $this->cm_db->connection->prepare(
 			'SELECT `id` FROM '.
@@ -767,7 +746,7 @@ class cm_attendee_db {
 	public function list_addon_purchases($attendee_id, $name_map = null) {
 		if (!$attendee_id) return false;
 		if (!$name_map) $name_map = $this->get_badge_type_name_map();
-		$purchases = array();
+		$purchases = [];
 		$stmt = $this->cm_db->connection->prepare(
 			'SELECT b.`id`, b.`attendee_id`, b.`addon_id`,'.
 			' b.`payment_price`, b.`payment_status`, b.`payment_type`,'.
@@ -812,7 +791,7 @@ class cm_attendee_db {
 
 	public function create_addon_purchases($attendee_id, $addons) {
 		if (!$attendee_id) return false;
-		$ids = array();
+		$ids = [];
 		foreach ($addons as $addon) {
 			$addon_id = ($addon['addon-id'] ?? ($addon['id'] ?? null));
 			$payment_price = ($addon['payment-price'] ?? ($addon['price'] ?? null));
@@ -986,8 +965,8 @@ class cm_attendee_db {
 				'percentage' => !!$percentage,
 				'price-html' => '?',
 				'active' => !!$active,
-				'badge-type-ids' => ($badge_type_ids ? explode(',', $badge_type_ids) : array()),
-				'badge-type-names' => array(),
+				'badge-type-ids' => ($badge_type_ids ? explode(',', $badge_type_ids) : []),
+				'badge-type-names' => [],
 				'limit-per-customer' => $limit_per_customer,
 				'start-date' => $start_date,
 				'end-date' => $end_date,
@@ -1007,7 +986,7 @@ class cm_attendee_db {
 
 	public function list_promo_codes($name_map = null) {
 		if (!$name_map) $name_map = $this->get_badge_type_name_map();
-		$promo_codes = array();
+		$promo_codes = [];
 		$stmt = $this->cm_db->connection->prepare(
 			'SELECT p.`id`, p.`code`, p.`description`, p.`price`,'.
 			' p.`percentage`, p.`active`, p.`badge_type_ids`,'.
@@ -1033,8 +1012,8 @@ class cm_attendee_db {
 				'percentage' => !!$percentage,
 				'price-html' => '?',
 				'active' => !!$active,
-				'badge-type-ids' => ($badge_type_ids ? explode(',', $badge_type_ids) : array()),
-				'badge-type-names' => array(),
+				'badge-type-ids' => ($badge_type_ids ? explode(',', $badge_type_ids) : []),
+				'badge-type-names' => [],
 				'limit-per-customer' => $limit_per_customer,
 				'start-date' => $start_date,
 				'end-date' => $end_date,
@@ -1190,7 +1169,7 @@ class cm_attendee_db {
 	}
 
 	public function list_blacklist_entries() {
-		$blacklist = array();
+		$blacklist = [];
 		$stmt = $this->cm_db->connection->prepare(
 			'SELECT `id`, `first_name`, `last_name`, `fandom_name`,'.
 			' `email_address`, `phone_number`, `added_by`, `notes`,'.
@@ -1370,7 +1349,7 @@ class cm_attendee_db {
 		$normalized_fandom_name = strtoupper(preg_replace('/[^A-Za-z0-9]+/', '', $fandom_name));
 		$normalized_email_address = strtoupper(preg_replace('/\\+.*@|[^A-Za-z0-9]+/', '', $email_address));
 		$normalized_phone_number = preg_replace('/[^0-9]+/', '', $phone_number);
-		$query_params = array();
+		$query_params = [];
 		$bind_params = array('');
 		if ($normalized_real_name) {
 			$query_params[] = '`normalized_real_name` = ?';
@@ -1455,7 +1434,7 @@ class cm_attendee_db {
 
 	public function retrieve_attendee_reviewlinks($email) {
 		if (!$email) return false;
-		$result = array();
+		$result = [];
 		$stmt = $this->cm_db->connection->prepare(
 			'SELECT `payment_group_uuid`,  `payment_txn_id` FROM `attendees`' .
 			' WHERE LCASE(`email_address`) = LCASE(?)'.
@@ -1646,9 +1625,9 @@ class cm_attendee_db {
 			);
 			$stmt->close();
 			$addons = $this->list_addon_purchases($id, $name_map);
-			$result['addons'] = array();
-			$result['addon-ids'] = array();
-			$result['addon-names'] = array();
+			$result['addons'] = [];
+			$result['addon-ids'] = [];
+			$result['addon-names'] = [];
 			if ($addons) {
 				$result['addons'] = $addons;
 				foreach ($addons as $addon) {
@@ -1679,7 +1658,7 @@ class cm_attendee_db {
 	public function list_attendees($gid = null, $tid = null, $name_map = null, $fdb = null) {
 		if (!$name_map) $name_map = $this->get_badge_type_name_map();
 		if (!$fdb) $fdb = new cm_forms_db($this->cm_db, 'attendee');
-		$attendees = array();
+		$attendees = [];
 		$query = (
 			'SELECT `id`, `uuid`, `date_created`, `date_modified`,'.
 			' `print_count`, `print_first_time`, `print_last_time`,'.
@@ -1851,8 +1830,8 @@ class cm_attendee_db {
 			$addons = $this->list_addon_purchases($attendee['id'], $name_map);
 			if ($addons) {
 				$attendees[$i]['addons'] = $addons;
-				$attendees[$i]['addon-ids'] = array();
-				$attendees[$i]['addon-names'] = array();
+				$attendees[$i]['addon-ids'] = [];
+				$attendees[$i]['addon-names'] = [];
 				foreach ($addons as $addon) {
 					$attendees[$i]['addon-ids'][] = $addon['addon-id'];
 					if (isset($addon['name'])) {
@@ -2130,7 +2109,7 @@ class cm_attendee_db {
 		$count = $stmt->execute() ? $this->cm_db->connection->affected_rows : false;
 		$stmt->close();
 		if ($count) {
-			$ids = array();
+			$ids = [];
 			$stmt = $this->cm_db->connection->prepare(
 				'SELECT `id` FROM `attendees`' .
 				' WHERE LCASE(`email_address`) = LCASE(?)'
@@ -2203,15 +2182,15 @@ class cm_attendee_db {
 
 	public function get_attendee_statistics($granularity = 300, $name_map = null) {
 		if (!$name_map) $name_map = $this->get_badge_type_name_map();
-		$timestamps = array();
-		$counters = array();
-		$timelines = array();
+		$timestamps = [];
+		$counters = [];
+		$timelines = [];
 		foreach ($name_map as $k => $v) {
-			$counters[$k] = array(0, 0, 0, 0);
-			$timelines[$k] = array(array(), array(), array(), array());
+			$counters[$k] = [0, 0, 0, 0];
+			$timelines[$k] = [[], [], [], []];
 		}
-		$counters['*'] = array(0, 0, 0, 0);
-		$timelines['*'] = array(array(), array(), array(), array());
+		$counters['*'] = [0, 0, 0, 0];
+		$timelines['*'] = [[], [], [], []];
 
 		$stmt = $this->cm_db->connection->prepare(
 			'SELECT UNIX_TIMESTAMP(`date_created`), `badge_type_id`'.
