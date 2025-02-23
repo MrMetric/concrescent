@@ -253,7 +253,7 @@ class cm_attendee_db {
 				$whereClause[] = 'AND (b.`start_date` IS NULL OR b.`start_date` <= CURDATE())';
 			}
 			$whereClause[] = 'AND (b.`end_date` IS NULL OR b.`end_date` >= CURDATE())';
-			$whereClause[] = 'OR (IFNULL(b.`active_override_code`,\'\') = ? )';
+			$whereClause[] = 'OR (IFNULL(b.`active_override_code`,\'\') = :override_code )';
 
 			if($override_code === '') {
 				$override_code = 'Todo: Do this properly';
@@ -269,21 +269,30 @@ class cm_attendee_db {
 
 		$stmt = $this->cm_db->connection->prepare($query . ' ORDER BY b.`order`');
 		if ($active_only) {
-			$stmt->bind_param(
-				's',
-				$override_code
-			);
+			$stmt->bindParam(':override_code', $override_code);
 		}
 		$stmt->execute();
-		$stmt->bind_result(
-			$id, $order, $name, $description, $rewards,
-			$price, $salesTax, $payable_onsite, $active, $quantity,
-			$start_date, $end_date, $min_age, $max_age,
-			$quantity_sold
-		);
 		$event_start_date = $this->event_info['start_date'];
 		$event_end_date   = $this->event_info['end_date'  ];
-		while ($stmt->fetch()) {
+		while (($row = $stmt->fetch(PDO::FETCH_NUM)) !== false) {
+			// what a disaster
+			// TODO (Mr. Metric): make this less annoying
+			$id = $row[0];
+			$order = $row[1];
+			$name = $row[2];
+			$description = $row[3];
+			$rewards = $row[4];
+			$price = $row[5];
+			$salesTax = $row[6];
+			$payable_onsite = $row[7];
+			$active = $row[8];
+			$quantity = $row[9];
+			$start_date = $row[10];
+			$end_date = $row[11];
+			$min_age = $row[12];
+			$max_age = $row[13];
+			$quantity_sold = $row[14];
+
 			if ($unsold_only && !(is_null($quantity) || $quantity > $quantity_sold)) continue;
 			$min_birthdate = $max_age ? (((int)$event_start_date - $max_age - 1) . substr($event_start_date, 4)) : null;
 			$max_birthdate = $min_age ? (((int)$event_end_date   - $min_age    ) . substr($event_end_date  , 4)) : null;
@@ -310,7 +319,6 @@ class cm_attendee_db {
 				'search-content' => [$name, $description, $rewards],
 			];
 		}
-		$stmt->close();
 		return $badge_types;
 	}
 

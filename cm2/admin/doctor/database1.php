@@ -35,5 +35,4 @@ if ($answer != 42) {
 	die('NG Connection to database is not working. Check database configuration.');
 }
 
-$query->closeCursor();
 echo 'OK Successfully connected to database.';

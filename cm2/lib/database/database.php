@@ -10,7 +10,6 @@ function explode_or_empty(string $separator, string $string): array
 class cm_db
 {
 	public PDO $connection;
-	public array $known_tables; // This is effectively a set. Consider Ds\Set.
 
 	public function __construct()
 	{
@@ -28,28 +27,45 @@ class cm_db
 		// Set the time zone
 		$this->connection->prepare('SET time_zone = ?')
 			->execute([$config['timezone']]);
-
-		// Create the set of known tables
-		$stmt = $this->connection->prepare(
-			'SELECT table_name FROM information_schema.tables WHERE table_schema = ?'
-		);
-		$stmt->execute([$dbname]);
-		$db_tables = $stmt->fetchAll(PDO::FETCH_COLUMN);
-		$this->known_tables = array_fill_keys($db_tables, true);
 	}
 
+	public function translate_query(string $query): string
+	{
+		$dbtype = $this->connection->getAttribute(PDO::ATTR_DRIVER_NAME);
+		if($dbtype === 'mysql')
+		{
+			return $query;
+		}
+		return str_replace('`', '"', $query);
+	}
+
+	public function query(string $query): PDOStatement
+	{
+		return $this->connection->query($this->translate_query($query));
+	}
+
+	public function prepare(string $query): PDOStatement
+	{
+		return $this->connection->prepare($this->translate_query($query));
+	}
+
+	public function execute(string $query, ?array $params = null): PDOStatement
+	{
+		$stmt = $this->prepare($query);
+		$stmt->execute($params);
+		return $stmt;
+	}
+
+	// The stuff calling this needs to be moved elsewhere, perhaps a separate database-init page.
+	// We shouldn't try to create the tables *every time a page is loaded*!
 	public function table_def(string $table, string $def): void
 	{
-		if(!isset($this->known_tables[$table]))
-		{
-			$this->known_tables[$table] = true;
-			$this->connection->query("CREATE TABLE IF NOT EXISTS \"$table\" ($def)");
-		}
+		$this->query("CREATE TABLE IF NOT EXISTS `$table` ($def)");
 	}
 
 	public function table_is_empty(string $table): bool
 	{
-		return 0 === $this->connection->query("SELECT COUNT(*) FROM $table")->fetchColumn();
+		return 0 === $this->query("SELECT COUNT(*) FROM `$table`")->fetchColumn();
 	}
 
 	public function now(): string
