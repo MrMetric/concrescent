@@ -256,24 +256,13 @@ class cm_application_db {
 		return false;
 	}
 
-	public function list_rooms_and_tables($expand = false) {
-		$rooms_and_tables = array();
-		$stmt = $this->cm_db->connection->prepare(
+	public function list_rooms_and_tables(bool $expand = false)
+	{
+		$stmt = $this->cm_db->query(
 			'SELECT `id`, `x1`, `y1`, `x2`, `y2`'.
 			' FROM `rooms_and_tables`'
 		);
-		$stmt->execute();
-		$stmt->bind_result($id, $x1, $y1, $x2, $y2);
-		while ($stmt->fetch()) {
-			$rooms_and_tables[] = array(
-				'id' => $id,
-				'x1' => $x1,
-				'y1' => $y1,
-				'x2' => $x2,
-				'y2' => $y2
-			);
-		}
-		$stmt->close();
+		$rooms_and_tables = $stmt->fetchAll(PDO::FETCH_ASSOC);
 		if ($expand) {
 			foreach ($rooms_and_tables as $i => $room_or_table) {
 				$id = $room_or_table['id'];
@@ -288,57 +277,51 @@ class cm_application_db {
 	}
 
 	public function list_room_and_table_assignments($id = null, $context = null) {
-		$assignments = array();
+		$assignments = [];
 		$query = (
 			'SELECT `context`, `context_id`, `room_or_table_id`, `start_time`, `end_time`'.
 			' FROM `room_and_table_assignments`'
 		);
 		$first = true;
-		$bind = array('');
+		$params = [];
 		if ($id) {
 			$query .= ($first ? ' WHERE' : ' AND') . ' `room_or_table_id` = ?';
 			$first = false;
-			$bind[0] .= 's';
-			$bind[] = &$id;
+			$params[] = $id;
 		}
 		if ($context) {
 			$ctx_uc = strtoupper($context);
 			$query .= ($first ? ' WHERE' : ' AND') . ' `context` = ?';
 			$first = false;
-			$bind[0] .= 's';
-			$bind[] = &$ctx_uc;
+			$params[] = $ctx_uc;
 		}
-		$stmt = $this->cm_db->connection->prepare($query);
-		if (!$first) call_user_func_array(array($stmt, 'bind_param'), $bind);
-		$stmt->execute();
-		$stmt->bind_result(
-			$context, $context_id, $room_or_table_id, $start_time, $end_time
-		);
-		while ($stmt->fetch()) {
-			$assignments[] = array(
-				'context' => $context,
-				'context-id' => $context_id,
-				'room-or-table-id' => $room_or_table_id,
-				'start-time' => $start_time,
-				'end-time' => $end_time
-			);
+		$stmt = $this->cm_db->execute($query, $params);
+		// TODO (Mr. Metric): fetchAll(PDO::FETCH_ASSOC) would work if the keys matched >:[
+		while(($row = $stmt->fetch(PDO::FETCH_NUM)) !== false)
+		{
+			$assignments[] = [
+				'context'          => $row[0],
+				'context-id'       => $row[1],
+				'room-or-table-id' => $row[2],
+				'start-time'       => $row[3],
+				'end-time'         => $row[4],
+			];
 		}
-		$stmt->close();
+
 		foreach ($assignments as $i => $assignment) {
 			$table_name = strtolower($assignment['context']);
-			$stmt = $this->cm_db->connection->prepare(
+			$stmt = $this->cm_db->execute(
 				'SELECT `business_name`, `application_name`'.
 				" FROM `applications_$table_name`".
-				' WHERE `id` = ? LIMIT 1'
+				' WHERE `id` = ?'
+				, [$assignment['context-id']]
 			);
-			$stmt->bind_param('i', $assignment['context-id']);
-			$stmt->execute();
-			$stmt->bind_result($business_name, $application_name);
+			$stmt->bindColumn(1, $business_name);
+			$stmt->bindColumn(2, $application_name);
 			if ($stmt->fetch()) {
 				$assignments[$i]['business-name'] = $business_name;
 				$assignments[$i]['application-name'] = $application_name;
 			}
-			$stmt->close();
 		}
 		usort($assignments, function($a, $b) {
 			if (($cmp = strnatcasecmp($a['room-or-table-id'], $b['room-or-table-id']))) return $cmp;
@@ -354,53 +337,38 @@ class cm_application_db {
 		return $assignments;
 	}
 
-	public function create_room_or_table($rt) {
-		if (!$rt || !isset($rt['id']) || !$rt['id']) return false;
-		$stmt = $this->cm_db->connection->prepare(
+	public function create_room_or_table(array $rt): bool
+	{
+		return $this->cm_db->prepare(
 			'INSERT INTO `rooms_and_tables` SET '.
-			'`id` = ?, `x1` = ?, `y1` = ?, `x2` = ?, `y2` = ?'.
+			'`id` = :id, `x1` = :x1, `y1` = :y1, `x2` = :x2, `y2` = :y2'.
 			' ON DUPLICATE KEY UPDATE '.
-			'`id` = ?, `x1` = ?, `y1` = ?, `x2` = ?, `y2` = ?'
-		);
-		$stmt->bind_param(
-			'sddddsdddd',
-			$rt['id'], $rt['x1'], $rt['y1'], $rt['x2'], $rt['y2'],
-			$rt['id'], $rt['x1'], $rt['y1'], $rt['x2'], $rt['y2']
-		);
-		$success = $stmt->execute();
-		$stmt->close();
-		return $success;
+			'`id` = :id, `x1` = :x1, `y1` = :y1, `x2` = :x2, `y2` = :y2'
+		)->execute($rt);
 	}
 
-	public function update_room_or_table($id, $rt) {
-		if (!$id || !$rt || !isset($rt['id']) || !$rt['id']) return false;
-		$stmt = $this->cm_db->connection->prepare(
+	public function update_room_or_table($id, $rt): bool
+	{
+		return $this->cm_db->prepare(
 			'UPDATE `rooms_and_tables` SET '.
 			'`id` = ?, `x1` = ?, `y1` = ?, `x2` = ?, `y2` = ?'.
 			' WHERE `id` = ? LIMIT 1'
-		);
-		$stmt->bind_param(
-			'sdddds',
+		)->execute([
 			$rt['id'], $rt['x1'], $rt['y1'], $rt['x2'], $rt['y2'],
 			$id
-		);
-		$success = $stmt->execute();
-		$stmt->close();
-		return $success;
+		]);
 	}
 
-	public function delete_room_or_table($id) {
-		if (!$id) return false;
-		$stmt = $this->cm_db->connection->prepare(
+	public function delete_room_or_table($id): bool
+	{
+		return $this->cm_db->prepare(
 			'DELETE FROM `rooms_and_tables`'.
 			' WHERE `id` = ? LIMIT 1'
-		);
-		$stmt->bind_param('s', $id);
-		$success = $stmt->execute();
-		$stmt->close();
-		return $success;
+		)->execute([$id]);
 	}
 
+	// TODO (Mr. Metric): use a batch insert instead of a separate statement for every row
+	// This isn't even using a transaction! Pray it doesn't break partway thru.
 	public function upload_rooms_and_tables($file) {
 		if (!$file) return false;
 		$in = fopen($file, 'r');
@@ -428,20 +396,18 @@ class cm_application_db {
 		$out = fopen('php://output', 'w');
 		$rooms_and_tables = $this->list_rooms_and_tables();
 		foreach ($rooms_and_tables as $rt) {
-			$row = array($rt['id'], $rt['x1'], $rt['y1'], $rt['x2'], $rt['y2']);
+			$row = [$rt['id'], $rt['x1'], $rt['y1'], $rt['x2'], $rt['y2']];
 			fputcsv($out, $row);
 		}
 		fclose($out);
 		exit(0);
 	}
 
-	public function delete_rooms_and_tables() {
-		$stmt = $this->cm_db->connection->prepare(
+	public function delete_rooms_and_tables(): bool
+	{
+		return $this->cm_db->prepare(
 			'DELETE FROM `rooms_and_tables`'
-		);
-		$success = $stmt->execute();
-		$stmt->close();
-		return $success;
+		)->execute();
 	}
 
 	public function get_badge_type($id) {
