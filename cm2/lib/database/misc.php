@@ -21,172 +21,151 @@ class cm_misc_db {
 		));
 	}
 
-	public function getval($key, $def = null) {
-		if (!$key) return $def;
-		$stmt = $this->cm_db->connection->prepare(
-			'SELECT `value` FROM `config_misc`' .
-			' WHERE `key` = ? LIMIT 1'
+	public function getval(string $key, string $default): string
+	{
+		$stmt = $this->cm_db->execute(
+			'SELECT `value` FROM `config_misc` WHERE `key` = ?'
+			, [$key]
 		);
-		$stmt->bind_param('s', $key);
-		$stmt->execute();
-		$stmt->bind_result($value);
-		$success = $stmt->fetch() && $value;
-		$stmt->close();
-		return $success ? $value : $def;
+		$row = $stmt->fetch(PDO::FETCH_NUM);
+		return $row ? $row[0] : $default;
 	}
 
-	public function setval($key, $value) {
-		if (!$key) return false;
-		$stmt = $this->cm_db->connection->prepare(
-			'INSERT INTO `config_misc`' .
-			' SET `key` = ?, `value` = ?'.
-			' ON DUPLICATE KEY UPDATE `value` = ?'
+	// TODO (Mr. Metric): This is MySQL-specific and needs to be rewritten later
+	public function setval(string $key, string $value): void
+	{
+		$this->cm_db->execute(
+			'INSERT INTO `config_misc` (`key`, `value`)'
+			.' VALUES (?, ?)'
+			.' ON DUPLICATE KEY UPDATE `value` = ?'
+			, [$key, $value, $value]
 		);
-		$stmt->bind_param('sss', $key, $value, $value);
-		$success = $stmt->execute();
-		$stmt->close();
-		return $success;
 	}
 
-	public function clearval($key) {
-		if (!$key) return false;
-		$stmt = $this->cm_db->connection->prepare(
-			'DELETE FROM `config_misc`' .
-			' WHERE `key` = ? LIMIT 1'
+	// The returned bool indicates whether or not a row was deleted.
+	public function clearval(string $key): bool
+	{
+		$stmt = $this->cm_db->execute(
+			'DELETE FROM `config_misc` WHERE `key` = ?'
+			, [$key]
 		);
-		$stmt->bind_param('s', $key);
-		$success = $stmt->execute();
-		$stmt->close();
-		return $success;
+		return $stmt->rowCount() !== 0;
 	}
 
-	public function upload_file($name, $type, $image_w, $image_h, $file) {
-		if (!$name || !$type || !$file) return false;
-		$this->cm_db->connection->autocommit(false);
-		$stmt = $this->cm_db->connection->prepare(
-			'SELECT 1 FROM `config_misc_files`' .
-			' WHERE `file_name` = ? LIMIT 1'
-		);
-		$stmt->bind_param('s', $name);
-		$stmt->execute();
-		$stmt->bind_result($exists);
-		$exists = $stmt->fetch() && $exists;
-		$stmt->close();
-		$null = null;
-		if ($exists) {
-			$stmt = $this->cm_db->connection->prepare(
-				'UPDATE `config_misc_files` SET '.
-				'`file_name` = ?, `mime_type` = ?, `image_w` = ?, `image_h` = ?, `data` = ?'.
-				' WHERE `file_name` = ? LIMIT 1'
-			);
-			$stmt->bind_param('ssiibs', $name, $type, $image_w, $image_h, $null, $name);
-		} else {
-			$stmt = $this->cm_db->connection->prepare(
-				'INSERT INTO `config_misc_files` SET '.
-				'`file_name` = ?, `mime_type` = ?, `image_w` = ?, `image_h` = ?, `data` = ?'
-			);
-			$stmt->bind_param('ssiib', $name, $type, $image_w, $image_h, $null);
+	public function upload_file(string $name, $type, $image_w, $image_h, $file): bool
+	{
+		if(!$type || !$file)
+		{
+			return false;
 		}
-		$fp = fopen($file, 'r');
-		if ($fp) {
-			while (!feof($fp)) $stmt->send_long_data(4, fread($fp, 65536));
-			fclose($fp);
-			$success = $stmt->execute();
-		} else {
-			$success = false;
+
+		if($this->cm_db->table_has_row('config_misc_files', 'file_name', $name))
+		{
+			$sql = 'UPDATE `config_misc_files` SET'
+				.' `file_name` = :file_name, `mime_type` = :mime_type, `image_w` = :image_w, `image_h` = :image_h, `data` = :data'
+				.' WHERE `file_name` = :file_name';
 		}
-		$stmt->close();
-		$this->cm_db->connection->autocommit(true);
-		return $success;
+		else
+		{
+			$sql = 'INSERT INTO `config_misc_files`'
+				.' (`file_name`, `mime_type`, `image_w`, `image_h`, `data`)'
+				.' VALUES (:file_name, :mime_type, :image_w, :image_h, :data)';
+		}
+
+		$data = file_get_contents($file);
+		if($data === false)
+		{
+			return false;
+		}
+
+		return $this->cm_db->prepare($sql)->execute([
+			':file_name' => $name   ,
+			':mime_type' => $type   ,
+			':image_w'   => $image_w,
+			':image_h'   => $image_h,
+			':data'      => $data   ,
+		]);
 	}
 
-	public function download_file($name, $attachment = false) {
-		if (!$name) return false;
-		$stmt = $this->cm_db->connection->prepare(
-			'SELECT `mime_type`, `data`'.
-			' FROM `config_misc_files`' .
-			' WHERE `file_name` = ? LIMIT 1'
+	public function download_file(string $name, bool $attachment = false): bool
+	{
+		$stmt = $this->cm_db->execute(
+			'SELECT `mime_type`, `data` FROM `config_misc_files` WHERE `file_name` = ?'
+			, [$name]
 		);
-		$stmt->bind_param('s', $name);
-		$stmt->execute();
-		$stmt->bind_result($type, $data);
-		if ($stmt->fetch() && $type && $data) {
-			if ($attachment) {
-				if ($attachment !== true) {
-					$name = $attachment;
+		$stmt->bindColumn(1, $type);
+		$stmt->bindColumn(2, $data);
+		if(!$stmt->fetch() || !$type || !$data)
+		{
+			return false;
+		}
+
+		if($attachment)
+		{
+			if(!strrpos($name, '.'))
+			{
+				$o = strrpos($type, '/');
+				if($o)
+				{
+					$name .= '.' . substr($type, $o + 1);
 				}
-				if (!strrpos($name, '.')) {
-					$o = strrpos($type, '/');
-					if ($o) $name .= '.' . substr($type, $o + 1);
-				}
-				header('Content-Disposition: attachment; filename=' . $name);
 			}
-			header('Content-Type: ' . $type);
-			header('Pragma: no-cache');
-			header('Expires: 0');
-			echo $data;
-			$stmt->close();
-			return true;
+			header('Content-Disposition: attachment; filename=' . $name);
 		}
-		$stmt->close();
-		return false;
+
+		header('Content-Type: ' . $type);
+		header('Pragma: no-cache');
+		header('Expires: 0');
+		echo $data;
+
+		return true;
 	}
 
-	public function get_file_image_size($name) {
-		if (!$name) return false;
-		$stmt = $this->cm_db->connection->prepare(
-			'SELECT `image_w`, `image_h`'.
-			' FROM `config_misc_files`' .
-			' WHERE `file_name` = ? LIMIT 1'
+	public function get_file_image_size(string $name): array|false
+	{
+		$stmt = $this->cm_db->execute(
+			'SELECT `image_w`, `image_h` FROM `config_misc_files` WHERE `file_name` = ?'
+			, [$name]
 		);
-		$stmt->bind_param('s', $name);
-		$stmt->execute();
-		$stmt->bind_result($image_w, $image_h);
-		if ($stmt->fetch() && $image_w && $image_h) {
-			$size = array($image_w, $image_h);
-			$stmt->close();
-			return $size;
+		$stmt->bindColumn(1, $image_w);
+		$stmt->bindColumn(2, $image_h);
+		if(!$stmt->fetch() || is_null($image_w) || is_null($image_h))
+		{
+			return false;
 		}
-		$stmt->close();
-		return false;
+		return [$image_w, $image_h];
 	}
 
-	public function delete_file($name) {
-		if (!$name) return false;
-		$stmt = $this->cm_db->connection->prepare(
-			'DELETE FROM `config_misc_files`' .
-			' WHERE `file_name` = ? LIMIT 1'
+	public function delete_file(string $name): void
+	{
+		$this->cm_db->execute(
+			'DELETE FROM `config_misc_files` WHERE `file_name` = ?'
+			, [$name]
 		);
-		$stmt->bind_param('s', $name);
-		$success = $stmt->execute();
-		$stmt->close();
-		return $success;
 	}
 
 
 	public function getBadgeTypesFromQuestionAnswer(string $creditId, string $approvalId): array
 	{
-		$stmt = $this->cm_db->connection->prepare(
+		return $this->cm_db->execute(
 			"SELECT attendees.badge_type_id AS badge_id,
-			    attendee_badge_types.name AS badge_name,
-			    form_credits.answer AS answer
+				attendee_badge_types.name AS badge_name,
+				form_credits.answer AS answer
 			FROM `attendees`
 				INNER JOIN `form_answers` AS form_credits
-			        ON form_credits.question_id = ?
-			    		AND form_credits.context = 'attendee'
-			            AND attendees.id = form_credits.context_id
-			    INNER JOIN `form_answers` AS forms_approval
-			        ON forms_approval.question_id = ?
-			    		AND forms_approval.context = 'attendee'
-			            AND attendees.id = forms_approval.context_id
+					ON form_credits.question_id = :credit_id
+						AND form_credits.context = 'attendee'
+						AND attendees.id = form_credits.context_id
+				INNER JOIN `form_answers` AS forms_approval
+					ON forms_approval.question_id = :approval_id
+						AND forms_approval.context = 'attendee'
+						AND attendees.id = forms_approval.context_id
 				INNER JOIN `attendee_badge_types`
 					ON attendees.badge_type_id = attendee_badge_types.id
 			ORDER BY attendees.id"
-		);
-		$stmt->bind_param('ii', $creditId, $approvalId);
-		$stmt->execute();
-		$results = $stmt->get_result();
-		$stmt->close();
-		return $results->fetch_all(MYSQLI_ASSOC);
+		, [
+			':credit_id'   => $creditId  ,
+			':approval_id' => $approvalId,
+		])->fetchAll(PDO::FETCH_ASSOC);
 	}
 }

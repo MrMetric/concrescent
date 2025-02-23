@@ -41,7 +41,7 @@ if (isset($_POST['action'])) {
 			}
 			break;
 		case 'download-image':
-			if (!$midb->download_file('rooms-and-tables', true)) {
+			if (!$midb->download_file('rooms-and-tables', attachment: true)) {
 				header('Content-Disposition: attachment; filename=rooms-and-tables.png');
 				header('Content-Type: image/png');
 				header('Pragma: no-cache');

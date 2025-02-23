@@ -68,6 +68,11 @@ class cm_db
 		return 0 === $this->query("SELECT COUNT(*) FROM `$table`")->fetchColumn();
 	}
 
+	public function table_has_row(string $table, string $key, string $value): bool
+	{
+		return $this->execute("SELECT 1 FROM `$table` WHERE `$key` = ?", [$value])->fetchColumn();
+	}
+
 	public function now(): string
 	{
 		return $this->connection->query('SELECT NOW()')->fetchColumn();

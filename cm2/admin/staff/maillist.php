@@ -20,7 +20,7 @@ $alias_execs_1 = strtolower(trim($midb->getval('mail-alias-execs-1', 'execs@'.$d
 $alias_execs_2 = strtolower(trim($midb->getval('mail-alias-execs-2', 'exec@'.$domain)));
 $alias_staff_1 = strtolower(trim($midb->getval('mail-alias-staff-1', 'staff@'.$domain)));
 $alias_staff_2 = strtolower(trim($midb->getval('mail-alias-staff-2', '')));
-$list_limit = (int)trim($midb->getval('mail-list-limit', 100));
+$list_limit = (int)trim($midb->getval('mail-list-limit', '100'));
 
 $sdb = new cm_staff_db($db);
 $departments = $sdb->list_departments();
