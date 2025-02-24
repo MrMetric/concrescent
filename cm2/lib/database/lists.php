@@ -27,11 +27,13 @@ class cm_lists_db {
 		}
 	}
 
-	public function normalize_key($key) {
+	public function normalize_key(string $key): string
+	{
 		return strtolower(str_replace('_', '-', $key));
 	}
 
-	public function normalize_value($value) {
+	public function normalize_value(string $value): string
+	{
 		return preg_replace_callback(
 			'/([.]?)([0-9]+)/',
 			function($m) {
@@ -55,14 +57,12 @@ class cm_lists_db {
 		} else {
 			$key = $this->normalize_key($key);
 			$value = $this->normalize_value($value);
-			$stmt = $this->cm_db->connection->prepare(
+			$this->cm_db->execute(
 				'INSERT INTO '.
 				"`$this->index_table_name`" .
 				' SET `id` = ?, `key` = ?, `value` = ?'
+				, [$id, $key, $value]
 			);
-			$stmt->bind_param('iss', $id, $key, $value);
-			$stmt->execute();
-			$stmt->close();
 		}
 	}
 
@@ -72,26 +72,22 @@ class cm_lists_db {
 
 	public function remove_entity($id) {
 		if (!$id) return;
-		$stmt = $this->cm_db->connection->prepare(
+		$this->cm_db->execute(
 			'DELETE FROM '.
 			"`$this->index_table_name`" .
 			' WHERE `id` = ?'
+			, [$id]
 		);
-		$stmt->bind_param('i', $id);
-		$stmt->execute();
-		$stmt->close();
 	}
 
 	public function drop_index() {
-		$this->cm_db->connection->query(
-			'TRUNCATE TABLE '.
-			"`$this->index_table_name`"
-		);
+		$this->cm_db->query("TRUNCATE TABLE `$this->index_table_name`");
 	}
 
 	private int $sql_expr_id = 0;
 
-	public function list_query_op_to_sql($key, $op, $value) {
+	public function list_query_op_to_sql(string $key, string $op, string $value): array
+	{
 		$exid = 'e' . $this->sql_expr_id++;
 		$key = $this->normalize_key($key);
 		$value = $this->normalize_value($value);
@@ -109,8 +105,7 @@ class cm_lists_db {
 					" AND $exid.`value` LIKE ?".
 					' LIMIT 1))'
 				);
-				$bindtype = 'ss';
-				$bindvalue = array($key, $value);
+				$bindvalue = [$key, $value];
 				break;
 			case '<': case '>': case '<=': case '>=': case '=':
 				$sqlquery = (
@@ -121,53 +116,45 @@ class cm_lists_db {
 					" AND $exid.`value` $op ?".
 					' LIMIT 1))'
 				);
-				$bindtype = 'ss';
-				$bindvalue = array($key, $value);
+				$bindvalue = [$key, $value];
 				break;
 			default:
 				$sqlquery = 'FALSE';
-				$bindtype = '';
 				$bindvalue = [];
 				break;
 		}
-		return array($sqlquery, $bindtype, $bindvalue);
+		return [$sqlquery, $bindvalue];
 	}
 
-	public function list_query_to_sql($listquery, $key = '', $op = ':') {
+	public function list_query_to_sql($listquery, string $key = '', string $op = ':'): array
+	{
 		if (!$listquery) {
 			$sqlquery = 'TRUE';
-			$bindtype = '';
 			$bindvalue = [];
 		} else if ($listquery[0] == '"') {
 			$sql = $this->list_query_op_to_sql($key, $op, $listquery[1]);
 			$sqlquery = $sql[0];
-			$bindtype = $sql[1];
-			$bindvalue = $sql[2];
+			$bindvalue = $sql[1];
 		} else if ($listquery[0] == '-') {
 			$sql = $this->list_query_to_sql($listquery[1], $key, $op);
 			$sqlquery = '(NOT ' . $sql[0] . ')';
-			$bindtype = $sql[1];
-			$bindvalue = $sql[2];
+			$bindvalue = $sql[1];
 		} else if ($listquery[0] == '&') {
 			$sqlquery = [];
-			$bindtype = '';
 			$bindvalue = [];
 			for ($i = 1, $n = count($listquery); $i < $n; $i++) {
 				$sql = $this->list_query_to_sql($listquery[$i], $key, $op);
 				$sqlquery[] = $sql[0];
-				$bindtype .= $sql[1];
-				$bindvalue = array_merge($bindvalue, $sql[2]);
+				$bindvalue = array_merge($bindvalue, $sql[1]);
 			}
 			$sqlquery = '(' . implode(' AND ', $sqlquery) . ')';
 		} else if ($listquery[0] == '|') {
 			$sqlquery = [];
-			$bindtype = '';
 			$bindvalue = [];
 			for ($i = 1, $n = count($listquery); $i < $n; $i++) {
 				$sql = $this->list_query_to_sql($listquery[$i], $key, $op);
 				$sqlquery[] = $sql[0];
-				$bindtype .= $sql[1];
-				$bindvalue = array_merge($bindvalue, $sql[2]);
+				$bindvalue = array_merge($bindvalue, $sql[1]);
 			}
 			$sqlquery = '(' . implode(' OR ', $sqlquery) . ')';
 		} else {
@@ -177,15 +164,14 @@ class cm_lists_db {
 				$listquery[0]
 			);
 			$sqlquery = $sql[0];
-			$bindtype = $sql[1];
-			$bindvalue = $sql[2];
+			$bindvalue = $sql[1];
 		}
-		return array($sqlquery, $bindtype, $bindvalue);
+		return [$sqlquery, $bindvalue];
 	}
 
-	public function sort_order_to_sql(&$list_def, $sort_order) {
+	public function sort_order_to_sql(&$list_def, $sort_order): array
+	{
 		$select = [];
-		$bindtype = '';
 		$bindvalue = [];
 		$orderby = [];
 		if ($sort_order) {
@@ -200,69 +186,49 @@ class cm_lists_db {
 					' WHERE i'.$i.'.`id` = i.`id`'.
 					' AND i'.$i.'.`key` = ?) o'.$i
 				);
-				$bindtype .= 's';
 				$bindvalue[] = $key;
 				$orderby[] = 'o'.$i.($descending ? ' DESC' : ' ASC');
 			}
 			$orderby = array_reverse($orderby);
 		}
-		return array($select, $bindtype, $bindvalue, $orderby);
+		return [$select, $bindvalue, $orderby];
 	}
 
 	public function construct_sql(&$list_def, $query, $sort_order) {
-		list($query_sqlquery, $query_bindtype, $query_bindvalue) = $this->list_query_to_sql($query);
-		list($order_select, $order_bindtype, $order_bindvalue, $order_orderby) = $this->sort_order_to_sql($list_def, $sort_order);
+		list($query_sqlquery, $query_bindvalue) = $this->list_query_to_sql($query);
+		list($order_select, $order_bindvalue, $order_orderby) = $this->sort_order_to_sql($list_def, $sort_order);
 		$sqlquery = 'SELECT DISTINCT i.`id`';
-		$bindtype = '';
 		$bindvalue = [];
 		if ($order_select) {
 			$sqlquery .= ', ' . implode(', ', $order_select);
-			$bindtype .= $order_bindtype;
 			$bindvalue = array_merge($bindvalue, $order_bindvalue);
 		}
 		$sqlquery .= " FROM `$this->index_table_name` i";
 		if ($query_sqlquery) {
 			$sqlquery .= ' WHERE i.`key` = \'\' AND ' . $query_sqlquery;
-			$bindtype .= $query_bindtype;
 			$bindvalue = array_merge($bindvalue, $query_bindvalue);
 		}
 		if ($order_orderby) {
 			$sqlquery .= ' ORDER BY ' . implode(', ', $order_orderby);
 		}
-		return array($sqlquery, $bindtype, $bindvalue);
+		return [$sqlquery, $bindvalue];
 	}
 
-	public function list_indexes(&$list_def, $query = null, $sort_order = null, $offset = null, $length = null) {
+	public function list_indexes(&$list_def, $query = null, $sort_order = null, $offset = null, $length = null): array
+	{
 		if (is_null($query)) $query = json_decode($_POST['cm-list-search-query'], true);
 		if (is_null($sort_order)) $sort_order = json_decode($_POST['cm-list-sort-order'], true);
 		if (is_null($offset)) $offset = (int)$_POST['cm-list-page-offset'];
 		if (is_null($length)) $length = (int)$_POST['cm-list-page-length'];
 
-		list($sqlquery, $bindtype, $bindvalue) = $this->construct_sql($list_def, $query, $sort_order);
-		$stmt = $this->cm_db->connection->prepare($sqlquery);
-
-		$bindparam = array($bindtype);
-		if ($bindvalue) {
-			for ($i = 0, $n = count($bindvalue); $i < $n; $i++) {
-				$bindparam[] = &$bindvalue[$i];
-			}
-		}
-		call_user_func_array(array($stmt, 'bind_param'), $bindparam);
-
-		$stmt->execute();
-
-		$id = null;
-		$x = [];
-		$bindresult = array(&$id);
-		if ($sort_order) {
-			for ($i = 0, $n = count($sort_order); $i < $n; $i++) {
-				$bindresult[] = &$x[$i];
-			}
-		}
-		call_user_func_array(array($stmt, 'bind_result'), $bindresult);
+		list($sqlquery, $bindvalue) = $this->construct_sql($list_def, $query, $sort_order);
+		$stmt = $this->cm_db->execute($sqlquery, $bindvalue);
 
 		$ids = [];
-		while ($stmt->fetch()) { $ids[] = $id; }
+		while(($row = $stmt->fetch(PDO::FETCH_NUM)) !== false)
+		{
+			$ids[] = $row[0];
+		}
 
 		$match_count = count($ids);
 		if ($length) {

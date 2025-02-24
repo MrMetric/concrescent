@@ -184,7 +184,7 @@ if (isset($_POST['cm-list-action'])) {
 			echo json_encode($response);
 			break;
 		case 'reorder':
-			$id = $_POST['cm-list-key'];
+			$id = (int)$_POST['cm-list-key'];
 			$ok = $atdb->reorder_addon($id, (int)$_POST['cm-list-reorder-direction']);
 			$response = array('ok' => $ok);
 			echo json_encode($response);

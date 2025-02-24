@@ -241,14 +241,14 @@ if (isset($_POST['cm-list-action'])) {
 			echo json_encode($response);
 			break;
 		case 'delete':
-			$id = $_POST['cm-list-key'];
+			$id = (int)$_POST['cm-list-key'];
 			$ok = $apdb->delete_badge_type($id);
 			$response = array('ok' => $ok);
 			echo json_encode($response);
 			break;
 		case 'activate':
 		case 'deactivate':
-			$id = $_POST['cm-list-key'];
+			$id = (int)$_POST['cm-list-key'];
 			$ok = $apdb->activate_badge_type($id, $_POST['cm-list-action'] == 'activate');
 			$response = array('ok' => $ok);
 			if ($ok) {
@@ -260,7 +260,7 @@ if (isset($_POST['cm-list-action'])) {
 			echo json_encode($response);
 			break;
 		case 'reorder':
-			$id = $_POST['cm-list-key'];
+			$id = (int)$_POST['cm-list-key'];
 			$ok = $apdb->reorder_badge_type($id, (int)$_POST['cm-list-reorder-direction']);
 			$response = array('ok' => $ok);
 			echo json_encode($response);

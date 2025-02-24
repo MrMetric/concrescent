@@ -412,7 +412,7 @@ class cm_application_db {
 
 	public function get_badge_type($id) {
 		if (!$id) return false;
-		$stmt = $this->cm_db->connection->prepare(
+		$stmt = $this->cm_db->prepare(
 			'SELECT b.`id`, b.`order`, b.`name`, b.`description`, b.`rewards`,'.
 			' b.`max_applicant_count`, b.`max_assignment_count`,'.
 			' b.`base_price`, b.`base_price_sales_tax`,'.
@@ -438,8 +438,7 @@ class cm_application_db {
 			" FROM `application_badge_types_$this->ctx_lc` b".
 			' WHERE `id` = ? LIMIT 1'
 		);
-		$stmt->bind_param('i', $id);
-		$stmt->execute();
+		$stmt->execute([$id]);
 		$stmt->bind_result(
 			$id, $order, $name, $description, $rewards,
 			$max_applicant_count, $max_assignment_count,
@@ -500,12 +499,10 @@ class cm_application_db {
 				'max-age' => $max_age,
 				'min-birthdate' => $min_birthdate,
 				'max-birthdate' => $max_birthdate,
-				'search-content' => array($name, $description, $rewards)
+				'search-content' => [$name, $description, $rewards],
 			);
-			$stmt->close();
 			return $result;
 		}
-		$stmt->close();
 		return false;
 	}
 
@@ -526,19 +523,19 @@ class cm_application_db {
 	}
 
 	public function list_badge_type_names() {
-		$badge_types = array();
+		$badge_types = [];
 		$stmt = $this->cm_db->connection->prepare(
-			'SELECT `id`, `name`'.
-			" FROM `application_badge_types_$this->ctx_lc`".
-			' ORDER BY `order`'
+			'SELECT `id`, `name`'
+			." FROM `application_badge_types_$this->ctx_lc`"
+			.' ORDER BY `order`'
 		);
 		$stmt->execute();
 		$stmt->bind_result($id, $name);
 		while ($stmt->fetch()) {
-			$badge_types[] = array(
+			$badge_types[] = [
 				'id' => $id,
 				'name' => $name
-			);
+			];
 		}
 		$stmt->close();
 		return $badge_types;

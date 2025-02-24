@@ -43,22 +43,14 @@ class cm_forms_db {
 		));
 	}
 
-	public function get_custom_text($name) {
-		if (!$name) return false;
-		$stmt = $this->cm_db->connection->prepare(
+	public function get_custom_text(string $name): string|false
+	{
+		return $this->cm_db->execute(
 			'SELECT `text`'.
 			' FROM `form_custom_text`' .
-			' WHERE `context` = ? AND `name` = ? LIMIT 1'
-		);
-		$stmt->bind_param('ss', $this->context, $name);
-		$stmt->execute();
-		$stmt->bind_result($text);
-		if ($stmt->fetch()) {
-			$stmt->close();
-			return $text;
-		}
-		$stmt->close();
-		return false;
+			' WHERE `context` = ? AND `name` = ?'
+			, [$this->context, $name]
+		)->fetchColumn();
 	}
 
 	public function list_custom_text() {
