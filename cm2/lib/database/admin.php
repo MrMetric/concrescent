@@ -27,267 +27,241 @@ class cm_admin_db {
 			'`http_user_agent` VARCHAR(255) NOT NULL'
 		));
 		if ($this->cm_db->table_is_empty('admin_users')) {
+			// TODO!!!: test this branch
 			$config = $GLOBALS['cm_config']['default_admin'];
 			if ($config['name'] && $config['username'] && $config['password']) {
-				$password = password_hash($config['password'], PASSWORD_DEFAULT);
-				$active = 1;
-				$permissions = '*';
-				$stmt = $this->cm_db->prepare(
+				$this->cm_db->execute(
 					'INSERT INTO `admin_users` SET '.
-					'`name` = ?, `username` = ?, `password` = ?, `active` = ?, `permissions` = ?'
-				);
-				$stmt->bind_param(
-					'sssis',
+					'`name` = ?, `username` = ?, `password` = ?, `active` = 1, `permissions` = "*"'
+				, [
 					$config['name'],
 					$config['username'],
-					$password,
-					$active,
-					$permissions
-				);
-				$stmt->execute();
+					password_hash($config['password'], PASSWORD_DEFAULT),
+				]);
 			}
 		}
 	}
 
-	public function logged_in_user() {
-		$username = isset($_SESSION['admin_username']);
-		$password = isset($_SESSION['admin_password']);
-		if (!$username || !$password) return false;
-		$username = $_SESSION['admin_username'];
-		$password = $_SESSION['admin_password'];
-		if (!$username || !$password) return false;
-		$stmt = $this->cm_db->prepare(
+	public function logged_in_user(): array|false
+	{
+		$username = $_SESSION['admin_username'] ?? false;
+		$password = $_SESSION['admin_password'] ?? false;
+		if(!$username || !$password) { return false; }
+
+		$stmt = $this->cm_db->execute(
 			'SELECT `name`, `username`, `password`, `permissions`'.
 			' FROM `admin_users`' .
-			' WHERE `username` = ? AND `active` LIMIT 1'
-		);
-		$stmt->bind_param('s', $username);
-		$stmt->execute();
+			' WHERE `username` = ? AND `active`'
+		, [$username]);
 		$stmt->bind_result($name, $username, $hash, $permissions);
-		if ($stmt->fetch()) {
-			if (password_verify($password, $hash)) {
-				return [
-					'name' => $name,
-					'username' => $username,
-					'permissions' => explode(',', $permissions)
-				];
-			}
+		// NOTE: This leaves no way to distinguish between a lookup failure and
+		// an incorrect password.
+		if(!$stmt->fetch()
+		|| !password_verify($password, $hash))
+		{
+			return false;
 		}
-		return false;
+		return [
+			'name' => $name,
+			'username' => $username,
+			'permissions' => explode(',', $permissions)
+		];
 	}
 
-	public function log_in($username, $password) {
+	public function log_in($username, $password): array|false {
 		$_SESSION['admin_username'] = $username;
 		$_SESSION['admin_password'] = $password;
 		return $this->logged_in_user();
 	}
 
-	public function log_out() {
+	public function log_out(): void {
 		unset($_SESSION['admin_username']);
 		unset($_SESSION['admin_password']);
 		session_destroy();
 	}
 
-	public function log_access() {
-		$username = $_SESSION['admin_username'] ?? '';
-		$remote_addr = $_SERVER['REMOTE_ADDR'] ?? '';
-		$remote_host = $_SERVER['REMOTE_HOST'] ?? '';
-		$request_method = $_SERVER['REQUEST_METHOD'] ?? '';
-		$request_uri = $_SERVER['REQUEST_URI'] ?? '';
-		$http_referer = $_SERVER['HTTP_REFERER'] ?? '';
-		$http_user_agent = $_SERVER['HTTP_USER_AGENT'] ?? '';
-		$stmt = $this->cm_db->prepare(
+	public function log_access(): void {
+		$this->cm_db->execute(
 			'INSERT INTO `admin_access_log` SET '.
 			'`timestamp` = NOW(), `username` = ?, '.
 			'`remote_addr` = ?, `remote_host` = ?, '.
 			'`request_method` = ?, `request_uri` = ?, '.
 			'`http_referer` = ?, `http_user_agent` = ?'
-		);
-		$stmt->bind_param(
-			'sssssss',
-			$username, $remote_addr, $remote_host,
-			$request_method, $request_uri,
-			$http_referer, $http_user_agent
-		);
-		$success = $stmt->execute();
-		return $success;
+		, [
+			$_SESSION['admin_username'] ?? '',
+			$_SERVER['REMOTE_ADDR'    ] ?? '',
+			$_SERVER['REMOTE_HOST'    ] ?? '',
+			$_SERVER['REQUEST_METHOD' ] ?? '',
+			$_SERVER['REQUEST_URI'    ] ?? '',
+			$_SERVER['HTTP_REFERER'   ] ?? '',
+			$_SERVER['HTTP_USER_AGENT'] ?? '',
+		]);
 	}
 
-	public function user_has_permission($user, $permission) {
-		if (is_array($permission)) {
-			switch ($permission[0]) {
-				case '|': case '||':
-					for ($i = 1, $n = count($permission); $i < $n; $i++) {
-						if ($this->user_has_permission($user, $permission[$i])) {
-							return true;
-						}
-					}
-					return false;
-				case '!': case '!!':
-					for ($i = 1, $n = count($permission); $i < $n; $i++) {
-						if ($this->user_has_permission($user, $permission[$i])) {
-							return false;
-						}
-					}
-					return true;
-				case '&': case '&&':
-					for ($i = 1, $n = count($permission); $i < $n; $i++) {
-						if (!$this->user_has_permission($user, $permission[$i])) {
-							return false;
-						}
-					}
-					return true;
-				default:
-					return false;
-			}
-		} else {
+	// NOTE: most uses have `$permission` as a string
+	public function user_has_permission(array $user, array|string $permission): bool {
+		if (!is_array($permission)) {
 			return ($user && $user['permissions'] && (
 				in_array('*', $user['permissions']) ||
 				in_array($permission, $user['permissions'])
 			));
 		}
-	}
 
-	public function get_user($username) {
-		if (!$username) return false;
-		$stmt = $this->cm_db->prepare(
-			'SELECT `name`, `username`, `active`, `permissions`'.
-			' FROM `admin_users`' .
-			' WHERE `username` = ? LIMIT 1'
-		);
-		$stmt->bind_param('s', $username);
-		$stmt->execute();
-		$stmt->bind_result($name, $username, $active, $permissions);
-		if ($stmt->fetch()) {
-			return [
-				'name' => $name,
-				'username' => $username,
-				'active' => !!$active,
-				'permissions' => ($permissions ? explode(',', $permissions) : array()),
-				'search-content' => array($name, $username)
-			];
+		switch ($permission[0]) {
+			case '|': case '||':
+				for ($i = 1, $n = count($permission); $i < $n; $i++) {
+					if ($this->user_has_permission($user, $permission[$i])) {
+						return true;
+					}
+				}
+				return false;
+			case '!': case '!!':
+				for ($i = 1, $n = count($permission); $i < $n; $i++) {
+					if ($this->user_has_permission($user, $permission[$i])) {
+						return false;
+					}
+				}
+				return true;
+			case '&': case '&&':
+				for ($i = 1, $n = count($permission); $i < $n; $i++) {
+					if (!$this->user_has_permission($user, $permission[$i])) {
+						return false;
+					}
+				}
+				return true;
 		}
+
 		return false;
 	}
 
-	public function list_users() {
-		$users = array();
+	// TODO!!!: test
+	public function get_user(string $username): array|false {
+		if(!$username) { return false; }
+
+		$stmt = $this->cm_db->execute(
+			'SELECT `name`, `username`, `active`, `permissions`'.
+			' FROM `admin_users`' .
+			' WHERE `username` = ?'
+			, [$username]
+		);
+		$stmt->bind_result($name, $username, $active, $permissions);
+		if(!$stmt->fetch()) { return false; }
+		return [
+			'name' => $name,
+			'username' => $username,
+			'active' => !!$active,
+			'permissions' => ($permissions ? explode(',', $permissions) : []),
+			'search-content' => [$name, $username],
+		];
+	}
+
+	public function list_users(): array {
 		$stmt = $this->cm_db->execute(
 			'SELECT `name`, `username`, `active`, `permissions`'.
 			' FROM `admin_users`' .
 			' ORDER BY `name`'
 		);
 		$stmt->bind_result($name, $username, $active, $permissions);
+		// TODO!!!: investigate `fetchAll`
+		$users = [];
 		while ($stmt->fetch()) {
-			$users[] = array(
+			$users[] = [
 				'name' => $name,
 				'username' => $username,
 				'active' => !!$active,
-				'permissions' => ($permissions ? explode(',', $permissions) : array()),
-				'search-content' => array($name, $username)
-			);
+				'permissions' => ($permissions ? explode(',', $permissions) : []),
+				'search-content' => [$name, $username],
+			];
 		}
 		return $users;
 	}
 
-	public function create_user($user) {
-		if (!$user) return false;
-		if (!isset($user['username']) || !$user['username']) return false;
-		if (!isset($user['password']) || !$user['password']) return false;
-		/* Get field values */
+	// TODO!!!: test function
+	public function create_user(array $user): bool {
+		if(!$user
+		|| !isset($user['username']) || !$user['username']
+		|| !isset($user['password']) || !$user['password'])
+		{
+			return false;
+		}
+
 		$name = $user['name'] ?? '';
 		$username = $user['username'];
 		$password = password_hash($user['password'], PASSWORD_DEFAULT);
-		$active = (isset($user['active']) ? ($user['active'] ? 1 : 0) : 1);
+		$active = (isset($user['active']) ? (int)$user['active'] : 1);
 		$permissions = (
-			(isset($user['permissions']) && $user['permissions']) ?
-			implode(',', $user['permissions']) : ''
+			(isset($user['permissions']) && $user['permissions'])
+			? implode(',', $user['permissions'])
+			: ''
 		);
-		/* Create and execute query */
+
 		$stmt = $this->cm_db->prepare(
 			'INSERT INTO `admin_users` SET '.
 			'`name` = ?, `username` = ?, `password` = ?, `active` = ?, `permissions` = ?'
 		);
-		$stmt->bind_param(
-			'sssis',
+		return $stmt->execute([
 			$name,
 			$username,
 			$password,
 			$active,
-			$permissions
-		);
-		$success = $stmt->execute();
-		return $success;
+			$permissions,
+		]);
 	}
 
-	public function update_user($username, $user) {
-		if (!$username || !$user) return false;
-		/* Get field values */
+	public function update_user(string $username, array $user): bool {
+		if(!$username || !$user) { return false; }
+
 		$new_password = '';
 		$new_active = 1;
 		$new_permissions = '';
-		$query_params = array();
-		$bind_params = array('');
+		$query_params = [];
+		$bind_params = [];
 		if (isset($user['name']) && $user['name']) {
 			$query_params[] = '`name` = ?';
-			$bind_params[0] .= 's';
 			$bind_params[] = &$user['name'];
 		}
 		if (isset($user['username']) && $user['username']) {
 			$query_params[] = '`username` = ?';
-			$bind_params[0] .= 's';
 			$bind_params[] = &$user['username'];
 		}
 		if (isset($user['password']) && $user['password']) {
 			$new_password = password_hash($user['password'], PASSWORD_DEFAULT);
 			$query_params[] = '`password` = ?';
-			$bind_params[0] .= 's';
 			$bind_params[] = &$new_password;
 		}
 		if (isset($user['active'])) {
-			$new_active = ($user['active'] ? 1 : 0);
+			$new_active = (int)$user['active'];
 			$query_params[] = '`active` = ?';
-			$bind_params[0] .= 'i';
 			$bind_params[] = &$new_active;
 		}
 		if (isset($user['permissions']) && $user['permissions']) {
 			$new_permissions = implode(',', $user['permissions']);
 			$query_params[] = '`permissions` = ?';
-			$bind_params[0] .= 's';
 			$bind_params[] = &$new_permissions;
 		}
-		$bind_params[0] .= 's';
 		$bind_params[] = &$username;
-		/* Create and execute query */
+
 		$stmt = $this->cm_db->prepare(
 			'UPDATE `admin_users` SET '.
-			implode(', ', $query_params).' WHERE `username` = ? LIMIT 1'
+			implode(', ', $query_params).' WHERE `username` = ?'
 		);
-		call_user_func_array(array($stmt, 'bind_param'), $bind_params);
-		$success = $stmt->execute();
-		return $success;
+		return $stmt->execute([$bind_params]);
 	}
 
-	public function delete_user($username) {
-		if (!$username) return false;
+	// TODO!!!: double-check that `LIMIT 1` isn't important
+	// TODO!!!: test with `$username === ''`
+	public function delete_user(string $username): bool {
 		$stmt = $this->cm_db->prepare(
-			'DELETE FROM `admin_users`' .
-			' WHERE `username` = ? LIMIT 1'
+			'DELETE FROM `admin_users` WHERE `username` = ?'
 		);
-		$stmt->bind_param('s', $username);
-		$success = $stmt->execute();
-		return $success;
+		return $stmt->execute([$username]);
 	}
 
-	public function activate_user($username, $active) {
-		if (!$username) return false;
-		$active = $active ? 1 : 0;
+	public function activate_user(string $username, bool $active) {
 		$stmt = $this->cm_db->prepare(
 			'UPDATE `admin_users`' .
-			' SET `active` = ? WHERE `username` = ? LIMIT 1'
+			' SET `active` = ? WHERE `username` = ?'
 		);
-		$stmt->bind_param('is', $active, $username);
-		$success = $stmt->execute();
-		return $success;
+		return $stmt->execute([(int)$active, $username]);
 	}
 }
