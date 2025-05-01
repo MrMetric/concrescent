@@ -65,7 +65,7 @@ class cm_db {
 	public function __construct() {
 		$config = $GLOBALS['cm_config']['database'];
 
-		$host = $config['host'];
+		$host   = $config['host'    ];
 		$dbname = $config['database'];
 		// The charset must be utf8mb4 for full Unicode® support
 		$this->connection = new PDO(
@@ -73,8 +73,7 @@ class cm_db {
 			$config['username'], $config['password']
 		);
 
-		// Set the time zone
-		$this->connection->prepare('set time_zone = ?')->execute([$config['timezone']]);
+		$this->execute('set time_zone = ?', [$config['timezone']]);
 	}
 
 	public function translate_query(string $query): string
@@ -98,6 +97,7 @@ class cm_db {
 		return new PDOStatement_wrap($stmt);
 	}
 
+	// TODO: return query result object with success/error and $stmt
 	public function execute(string $query, ?array $params = null): PDOStatement_wrap
 	{
 		$stmt = $this->prepare($query);
